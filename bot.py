@@ -157,10 +157,8 @@ class Bot:
         LOG.info("startup service=%s country=%s maxPrice=%s providerIds=%s threads=%s rate=%s/s",
                  self.cfg["service"], self.cfg["country"], self.cfg["max_price"],
                  self.cfg["providers"], self.cfg["threads"], self.cfg["rate"])
-        try:
-            send_discord(self.cfg, "🔎 GrizzlySMS Apple / Turkey 번호 검색 시작 (제공업체 393,405,406,140 / 최대 $1)")
-        except requests.RequestException as error:
-            LOG.warning("Discord startup test failed: %s", type(error).__name__)
+        # Do not buy a number if its notification destination cannot be reached.
+        send_discord(self.cfg, "🔎 GrizzlySMS Apple / Turkey 번호 검색 시작 (제공업체 393,405,406,140 / 최대 $1)")
         workers = [threading.Thread(target=self.worker, name=f"poll-{i}")
                    for i in range(self.cfg["threads"])]
         for worker in workers:
