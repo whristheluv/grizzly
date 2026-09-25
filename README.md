@@ -18,7 +18,7 @@
 
 GitHub에서 불러오기를 선택하고 Python, `main`, 이 저장소 URL로 봇을 생성합니다. Discord 봇 초대와 Intents 설정은 필요하지 않습니다. 이 프로그램은 Discord 웹후크만 사용합니다.
 
-대시보드에서 `STARTUP_FILE`은 `bot.py`로 설정하고, 패키지가 자동 설치되지 않으면 `PY_PACKAGES`를 `requests==2.32.5 python-dotenv==1.1.1`로 지정합니다. 환경 변수 편집기에서 `.env.example`의 내용을 `.env`에 복사하고 `GRIZZLY_API_KEY`, `DISCORD_WEBHOOK_URL`만 본인 값으로 바꿉니다. 따옴표는 필요하지 않습니다. **구매가 시작되므로 두 값과 가격 상한을 확인한 뒤 시작하세요.**
+대시보드에서 `STARTUP_FILE`은 `bot.py`로 설정하고, 패키지가 자동 설치되지 않으면 `PY_PACKAGES`를 `requests==2.32.5 python-dotenv==1.1.1`로 지정합니다. 간편 설정의 환경변수에 `GRIZZLY_API_KEY`와 `DISCORD_WEBHOOK_URL`을 추가합니다. 다른 설정은 위 표의 값이 코드에 기본으로 적용됩니다. 따옴표는 필요하지 않습니다. **구매가 시작되므로 두 값과 가격 상한을 확인한 뒤 시작하세요.**
 
 구매 기록인 `purchase.json`은 `bot.py`와 같은 프로젝트 폴더에 저장되도록 설정했습니다. 디스호스트 문서에 따르면 이 위치는 재시작 후에도 보존됩니다. 이 파일을 삭제하거나 다른 봇 인스턴스에서 동시에 실행하면 중복 구매할 수 있습니다.
 
