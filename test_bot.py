@@ -1,6 +1,7 @@
 import tempfile
 import threading
 import unittest
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -43,6 +44,15 @@ class BotTests(unittest.TestCase):
     def tearDown(self):
         bot.STATE = self.original_state
         self.directory.cleanup()
+
+    def test_default_settings_match_request_and_cap_price(self):
+        with patch.dict(os.environ, {
+            "GRIZZLY_API_KEY": "fake", "DISCORD_WEBHOOK_URL": CFG["webhook"],
+        }, clear=True):
+            self.assertEqual(bot.config(), CFG)
+            os.environ["MAX_PRICE"] = "1.01"
+            with self.assertRaises(ValueError):
+                bot.config()
 
     def test_no_numbers_then_exactly_one_purchase(self):
         instance = bot.Bot(CFG)
