@@ -1,10 +1,10 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "grizzly-provider-405",
+  "name": "grizzly-apple-turkey",
   "main": "src/worker.js",
   "compatibility_date": "2026-09-25",
   "workers_dev": false,
-  "vars": { "MAX_PRICE": "1" },
+  "vars": { "MAX_PRICE": "1", "PROVIDER_IDS": "393,405,406,140" },
   "triggers": { "crons": ["* * * * *"] },
   "durable_objects": {
     "bindings": [{ "name": "PURCHASE", "class_name": "PurchaseCoordinator" }]
