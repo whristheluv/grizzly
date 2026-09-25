@@ -28,8 +28,8 @@ GitHub에서 불러오기를 선택하고 Python, `main`, 이 저장소 URL로 �
 
 Docker가 켜진 서버에서 저장소를 받은 뒤 `cp .env.example .env`로 복사합니다. `.env` 파일의 `GRIZZLY_API_KEY`와 `DISCORD_WEBHOOK_URL`만 본인 값으로 바꾸고 `docker compose up -d --build`를 실행합니다. 확인은 `docker compose logs -f --tail=100`, 중지는 `docker compose down`입니다. `.env`는 GitHub에 올리지 마세요. 기존 저장소의 GitHub Actions secrets는 새 저장소나 디스호스트로 자동 복사되지 않습니다.
 
-봇은 **계속** `getNumber`를 요청합니다. 요청 시작 속도는 전체 스레드를 합쳐 초당 최대 5회입니다. `NO_NUMBERS`이면 계속 찾습니다. 번호를 받으면 Discord로 알리고, 5초마다 GrizzlySMS 문자 상태를 확인합니다. 1분 이내 문자가 오면 인증번호를 Discord로 보내고 종료합니다. 문자 없이 1분이 지나면 `setStatus=8`로 취소를 요청하며, **취소 확인 응답을 받은 경우에만** 다음 번호를 찾습니다. 총 5개를 사용하면 종료합니다. 각 구매와 결과는 `purchase.json`(Docker에서는 `/data/purchase.json`)에 보관합니다. 취소 시 환불 가능 여부는 GrizzlySMS의 실제 거래 내역을 확인하세요.
+봇은 **계속** `getNumber`를 요청합니다. 요청 시작 속도는 전체 스레드를 합쳐 초당 최대 5회입니다. `NO_NUMBERS`이면 계속 찾습니다. 번호를 받으면 Discord로 알리고, 5초마다 GrizzlySMS 문자 상태를 확인합니다. 1분 이내 문자가 오면 인증번호를 Discord로 보내고 종료합니다. 문자 없이 1분이 지나면 `setStatus=8`로 취소를 요청하며, **취소 확인 응답을 받은 경우에만** 다음 번호를 찾습니다. GrizzlySMS가 `EARLY_CANCEL_DENIED`를 반환하면 15초 간격으로 취소를 다시 시도하며 그동안 추가 번호를 구매하지 않습니다. 따라서 취소 제한이 걸리면 다음 번호 검색까지 1분 이상 걸립니다. 총 5개를 사용하면 종료합니다. 각 구매와 결과는 `purchase.json`(Docker에서는 `/data/purchase.json`)에 보관합니다. 취소 시 환불 가능 여부는 GrizzlySMS의 실제 거래 내역을 확인하세요.
 
-구매나 취소 요청 결과가 불명확하거나 문자 상태가 예상과 다르면 다음 번호 구매를 멈춥니다. Discord 안내와 GrizzlySMS의 활성화 목록을 확인하세요. 기록용 Docker 볼륨을 지우거나 다른 서버에서 동시에 실행하면 중복 구매 방지가 깨질 수 있습니다. 문자 인증을 실제 사이트에서 성공했는지는 봇이 알 수 없으므로, SMS가 오면 구매를 멈추고 이용자가 입력합니다.
+구매나 취소 요청 결과가 불명확하거나 문자 상태가 예상과 다르면 다음 번호 구매를 멈춥니다. 기존 버전이 `Cancellation not confirmed`로 종료된 기록은 업그레이드 시 해당 번호의 문자 상태부터 다시 확인합니다. Discord 안내와 GrizzlySMS의 활성화 목록을 확인하세요. 기록용 Docker 볼륨을 지우거나 다른 서버에서 동시에 실행하면 중복 구매 방지가 깨질 수 있습니다. 문자 인증을 실제 사이트에서 성공했는지는 봇이 알 수 없으므로, SMS가 오면 구매를 멈추고 이용자가 입력합니다.
 
 GrizzlySMS의 **기존 잔액으로 번호를 구매**합니다. 카드 충전, Apple 계정 인증, YouTube 구독 결제는 자동화하지 않습니다.
