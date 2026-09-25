@@ -1,4 +1,4 @@
-"""Continuously buy one Apple/Turkey number from selected Grizzly providers."""
+"""Buy up to five Apple/Turkey numbers, checking each for SMS for one minute."""
 import json
 import logging
 import os
@@ -37,7 +37,7 @@ def config():
     price = setting("MAX_PRICE", "1")
     if not price.replace(".", "", 1).isdigit() or not 0 < float(price) <= 1:
         raise ValueError("MAX_PRICE must be between 0 and 1")
-    ids = setting("PROVIDER_IDS", "393,405,406,140")
+    ids = setting("PROVIDER_IDS", "405")
     if not all(part.isdigit() for part in ids.split(",")):
         raise ValueError("Invalid PROVIDER_IDS")
     cfg = {
@@ -48,6 +48,8 @@ def config():
         "rate": float(setting("MAX_REQUESTS_PER_SECOND", "5")),
         "timeout": float(setting("REQUEST_TIMEOUT_SECONDS", "10")),
         "status_every": int(setting("STATUS_EVERY_REQUESTS", "10")),
+        "max_purchases": 5,
+        "sms_wait": 60,
     }
     if any(cfg[k] <= 0 for k in ("threads", "rate", "timeout", "status_every")):
         raise ValueError("Poll settings must be positive")
@@ -66,7 +68,7 @@ def save_state(value):
 
 def read_state():
     if not STATE.exists():
-        return {"status": "idle"}
+        return {"status": "idle", "history": []}
     return json.loads(STATE.read_text(encoding="utf-8"))
 
 
@@ -95,8 +97,9 @@ class Bot:
 
     def notify_pending(self, state):
         if state["status"] == "purchased":
-            message = ("✅ GrizzlySMS Apple / Turkey 번호 구매 완료\n"
-                       f"번호: {state['phone']}\n활성화 ID: {state['id']}")
+            message = (f"✅ GrizzlySMS 번호 {len(state['history'])}/5 구매\n"
+                       f"번호: {state['phone']}\n활성화 ID: {state['id']}\n"
+                       "1분 동안 문자를 확인합니다.")
         else:
             message = ("⚠️ GrizzlySMS 번호 구매 결과를 확인할 수 없어 중지했습니다. "
                        "GrizzlySMS 활성화 목록을 확인해 주세요.")
@@ -108,12 +111,83 @@ class Bot:
         except requests.RequestException as error:
             LOG.warning("Discord notification failed: %s", type(error).__name__)
 
+    def stop_for_review(self, state, reason):
+        LOG.error("Stopped for manual review: %s", reason)
+        save_state({**state, "status": "attempted", "reason": reason, "notified": False})
+        self.stop.set()
+        self.notify_pending(read_state())
+
+    def expire_number(self, state, result):
+        history = [*state["history"]]
+        history[-1] = {**history[-1], "result": result}
+        if len(history) >= self.cfg["max_purchases"]:
+            save_state({"status": "exhausted", "history": history})
+            self.stop.set()
+            message = "⛔ 번호 총 5개까지 사용하여 검색을 종료했습니다."
+        else:
+            save_state({"status": "idle", "history": history})
+            message = f"⏱️ 이전 번호에 문자가 없어 취소했습니다. 다음 번호를 검색합니다 ({len(history)}/5 사용)."
+        try:
+            send_discord(self.cfg, message)
+        except requests.RequestException:
+            self.stop_for_review(read_state(), "Discord notification failed before next purchase")
+
+    def check_sms(self, session, state):
+        if self.stop.wait(5):
+            return
+        try:
+            response = session.get(API, params={
+                "api_key": self.cfg["api_key"], "action": "getStatus", "id": state["id"],
+            }, timeout=self.cfg["timeout"])
+            response.raise_for_status()
+        except requests.RequestException:
+            self.stop_for_review(state, "SMS status request failed")
+            return
+        body = response.text.strip()
+        if body.startswith("STATUS_OK:") and body.split(":", 1)[1]:
+            code = body.split(":", 1)[1]
+            save_state({**state, "status": "completed", "code": code})
+            self.stop.set()
+            send_discord(self.cfg, f"📩 SMS 수신! 번호: {state['phone']} / 인증번호: {code} (활성화 ID: {state['id']})")
+            return
+        if body == "STATUS_CANCEL":
+            self.expire_number(state, "cancelled_by_provider")
+            return
+        if body not in ("STATUS_WAIT_CODE", "STATUS_WAIT_RESEND", "STATUS_WAIT_RETRY"):
+            self.stop_for_review(state, "Unexpected SMS status")
+            return
+        if time.time() - state["acquired_at"] < self.cfg["sms_wait"]:
+            return
+        # Never buy again while the prior activation may still be active.
+        try:
+            cancelled = session.get(API, params={
+                "api_key": self.cfg["api_key"], "action": "setStatus",
+                "id": state["id"], "status": "8",
+            }, timeout=self.cfg["timeout"])
+            cancelled.raise_for_status()
+        except requests.RequestException:
+            self.stop_for_review(state, "Cancellation outcome unclear")
+            return
+        if cancelled.text.strip() != "ACCESS_CANCEL":
+            self.stop_for_review(state, "Cancellation not confirmed")
+            return
+        self.expire_number(state, "cancelled_no_sms")
+
     def poll_once(self, session):
         # Only one charge-capable request may be in flight, including with 20 threads.
         with self.purchase_lock:
-            if self.stop.is_set() or not self.wait_for_slot():
+            if self.stop.is_set():
                 return
-            save_state({"status": "attempted", "at": time.time()})
+            state = read_state()
+            if state["status"] == "purchased":
+                self.check_sms(session, state)
+                return
+            if state["status"] != "idle" or len(state["history"]) >= self.cfg["max_purchases"]:
+                self.stop.set()
+                return
+            if not self.wait_for_slot():
+                return
+            save_state({"status": "attempted", "at": time.time(), "history": state["history"]})
             try:
                 response = session.get(API, params={
                     "api_key": self.cfg["api_key"], "action": "getNumber",
@@ -123,14 +197,13 @@ class Bot:
                 response.raise_for_status()
             except requests.RequestException as error:
                 LOG.error("Grizzly request outcome unclear: %s", type(error).__name__)
-                self.stop.set()
-                self.notify_pending(read_state())
+                self.stop_for_review(read_state(), "Purchase request outcome unclear")
                 return
 
             self.requests += 1
             body = response.text.strip()
             if body == "NO_NUMBERS":
-                save_state({"status": "idle"})
+                save_state(state)
                 self.no_numbers += 1
                 if self.requests % self.cfg["status_every"] == 0:
                     LOG.info("still polling requests=%s no_numbers=%s", self.requests, self.no_numbers)
@@ -138,16 +211,18 @@ class Bot:
 
             parts = body.split(":", 2)
             if len(parts) == 3 and parts[0] == "ACCESS_NUMBER" and all(part.isdigit() for part in parts[1:]):
-                state = {"status": "purchased", "id": parts[1], "phone": parts[2], "notified": False}
-                save_state(state)
-                self.stop.set()
+                acquired_at = time.time()
+                new_state = {"status": "purchased", "id": parts[1], "phone": parts[2],
+                             "acquired_at": acquired_at, "notified": False,
+                             "history": [*state["history"], {"id": parts[1], "phone": parts[2],
+                                                             "result": "waiting"}]}
+                save_state(new_state)
                 LOG.info("Number acquired activation=%s", parts[1])
-                self.notify_pending(state)
+                self.notify_pending(new_state)
                 return
 
             LOG.error("Grizzly response requires manual review")
-            self.stop.set()
-            self.notify_pending(read_state())
+            self.stop_for_review(read_state(), "Purchase response requires review")
 
     def worker(self):
         with requests.Session() as session:
@@ -156,15 +231,26 @@ class Bot:
 
     def run(self):
         state = read_state()
-        if state["status"] != "idle":
+        if state["status"] == "purchased" and "history" not in state:
+            # Existing DisHost purchase counts as the first of five; do not delete it.
+            state = {**state, "acquired_at": time.time(),
+                     "history": [{"id": state["id"], "phone": state["phone"], "result": "waiting"}]}
+            save_state(state)
+        if state["status"] == "idle" and "history" not in state:
+            state = {"status": "idle", "history": []}
+            save_state(state)
+        if state["status"] not in ("idle", "purchased"):
             LOG.warning("Prior purchase state: %s; no further purchase attempts", state["status"])
-            self.notify_pending(state)
+            if state["status"] == "attempted":
+                self.notify_pending(state)
             return
+        if state["status"] == "purchased":
+            self.notify_pending(state)
         LOG.info("startup service=%s country=%s maxPrice=%s providerIds=%s threads=%s rate=%s/s",
                  self.cfg["service"], self.cfg["country"], self.cfg["max_price"],
                  self.cfg["providers"], self.cfg["threads"], self.cfg["rate"])
         # Do not buy a number if its notification destination cannot be reached.
-        send_discord(self.cfg, "🔎 GrizzlySMS Apple / Turkey 번호 검색 시작 (제공업체 393,405,406,140 / 최대 $1)")
+        send_discord(self.cfg, "🔎 GrizzlySMS Apple / Turkey 시작 (제공업체 405 / 번호당 최대 $1 / 총 5개)")
         workers = [threading.Thread(target=self.worker, name=f"poll-{i}")
                    for i in range(self.cfg["threads"])]
         for worker in workers:
