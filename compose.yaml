@@ -6,6 +6,8 @@ services:
     init: true
     env_file:
       - .env
+    environment:
+      STATE_FILE: /data/purchase.json
     volumes:
       - state:/data
     security_opt:
