@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "grizzly-provider-405",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-25",
+  "workers_dev": false,
+  "vars": { "MAX_PRICE": "1" },
+  "triggers": { "crons": ["* * * * *"] },
+  "durable_objects": {
+    "bindings": [{ "name": "PURCHASE", "class_name": "PurchaseCoordinator" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PurchaseCoordinator"] }]
+}
