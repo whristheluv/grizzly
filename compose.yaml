@@ -1,0 +1,16 @@
+services:
+  grizzlysms-bot:
+    build: .
+    container_name: grizzlysms-bot
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    volumes:
+      - state:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  state:
