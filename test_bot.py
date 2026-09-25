@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import bot
+import requests
 
 
 CFG = {
@@ -68,6 +69,14 @@ class BotTests(unittest.TestCase):
                 thread.join()
         self.assertEqual(len(session.params), 1)
         self.assertEqual(bot.read_state()["status"], "attempted")
+
+    def test_discord_failure_prevents_purchase(self):
+        instance = bot.Bot(CFG)
+        with patch.object(bot, "send_discord", side_effect=requests.ConnectionError):
+            with patch.object(instance, "worker") as worker:
+                with self.assertRaises(requests.ConnectionError):
+                    instance.run()
+                worker.assert_not_called()
 
 
 if __name__ == "__main__":
