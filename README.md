@@ -1,20 +1,25 @@
-# GrizzlySMS Apple Turkey 자동 구매
+# GrizzlySMS Apple / Turkey 자동 번호 구매
 
-사진의 Apple(`wx`), Turkey(`62`), 제공업체 `393,405,406,140` 설정을 사용합니다. 1분마다 재고를 확인해 GrizzlySMS 잔액으로 **번호 1개만** 구매하고 Discord 웹후크로 번호와 활성화 ID를 보냅니다. 카드 결제나 GrizzlySMS 잔액 충전은 하지 않습니다. `getNumber` 요청에는 `providerIds=393,405,406,140`, `maxPrice=1`이 적용됩니다. 구매 기록은 Cloudflare Durable Object에 보관합니다.
+[ErwannCharlier/GrizzlySmsBot](https://github.com/ErwannCharlier/GrizzlySmsBot)을 바탕으로 Discord 알림과 번호 1개 구매 제한을 적용한 Docker 봇입니다. 사진의 설정을 그대로 사용하며, 요청하신 가격 상한만 **$1**로 설정했습니다.
 
-## 배포 준비
+| 설정 | 값 |
+| --- | --- |
+| SERVICE / COUNTRY | `wx` / `62` |
+| MAX_PRICE | `1` |
+| PROVIDER_IDS | `393,405,406,140` |
+| THREADS | `20` |
+| MAX_REQUESTS_PER_SECOND | `5` (모든 작업자 합계 상한) |
+| REQUEST_TIMEOUT_SECONDS | `10` |
+| STATUS_EVERY_REQUESTS | `10` |
+| LOG_LEVEL | `INFO` |
+| 알림 | Discord 웹후크 |
 
-1. Cloudflare 계정과 Workers 접근 권한을 준비합니다.
-2. `npm install` 후 `npx wrangler login`으로 로그인합니다.
-3. `npx wrangler secret put GRIZZLY_API_KEY`, `npx wrangler secret put DISCORD_WEBHOOK_URL`로 각각 입력합니다. 구매 1건의 가격 상한은 `wrangler.jsonc`에 `$1`로 설정했습니다. 비밀값을 GitHub 코드에 쓰지 마세요. 기존 GitHub Actions secrets는 Cloudflare로 자동 이전되지 않습니다.
-4. `npm run deploy`를 실행합니다. Cron은 UTC 기준 매분 실행됩니다. Cloudflare 화면에서 실제 실행 여부를 확인하세요.
+## 실행
 
-## 동작 및 주의
+Docker가 켜진 서버에서 저장소를 받은 뒤 `cp .env.example .env`로 복사합니다. `.env` 파일의 `GRIZZLY_API_KEY`와 `DISCORD_WEBHOOK_URL`만 본인 값으로 바꾸고 `docker compose up -d --build`를 실행합니다. 확인은 `docker compose logs -f --tail=100`, 중지는 `docker compose down`입니다. `.env`는 GitHub에 올리지 마세요. 기존 저장소의 GitHub Actions secrets는 새 저장소나 Docker로 자동 복사되지 않습니다.
 
-- 선택한 제공업체 재고가 모두 0개면 구매하지 않습니다. 재고가 있으면 가격 상한을 적용해 `getNumber`를 한 번 호출합니다. `NO_NUMBERS`면 다음 실행에서 다시 확인합니다.
-- 사진의 `THREADS=20`, `MAX_REQUESTS_PER_SECOND=5`, `REQUEST_TIMEOUT_SECONDS=10`, `STATUS_EVERY_REQUESTS=10`, `LOG_LEVEL=INFO`는 상시 실행 Docker 봇의 설정입니다. 이 프로젝트는 매분 한 번 실행되므로 해당 설정이 필요하지 않습니다.
-- 성공 후에는 구매를 다시 시도하지 않으며, 알림이 실패한 경우에만 알림을 재시도합니다.
-- 구매 API 요청의 결과가 불분명하거나 API 오류가 나면 중복 구매를 피하려고 멈추고 Discord로 확인 요청을 보냅니다. 이 경우 GrizzlySMS 활성화 목록을 확인해야 합니다.
-- 이미 구매 기록이 있는 프로젝트를 재배포해도 구매 횟수는 초기화되지 않습니다. Durable Object 데이터를 삭제하거나 Worker 이름을 바꾸면 이 보장이 깨질 수 있습니다.
-- 구매와 문자 수신, 계정 인증, 구독 요금 결제는 별개입니다. 이 코드는 SMS 수신이나 구독 결제를 자동화하지 않습니다.
-- `npm test`로 구매 횟수 제한을 검증할 수 있습니다.
+봇은 실행 중 **계속** `getNumber`를 요청합니다. 요청 시작 속도는 전체 스레드를 합쳐 초당 최대 5회입니다. `NO_NUMBERS`이면 계속 찾고, 번호를 1개 확보하면 `/data/purchase.json`에 기록하고 구매를 멈춘 다음 Discord로 번호와 활성화 ID를 보냅니다. Docker 볼륨은 재시작 후에도 기록을 보존합니다.
+
+요청 도중 네트워크 오류가 발생하면 구매 성공 여부가 불확실할 수 있어 자동 재요청을 멈춥니다. Discord 안내와 GrizzlySMS의 활성화 목록을 확인하세요. 기록용 Docker 볼륨을 지우거나 다른 서버에서 동시에 실행하면 중복 구매 방지가 깨질 수 있습니다.
+
+GrizzlySMS의 **기존 잔액으로 번호를 구매**합니다. 카드 충전, 문자 수신, Apple 계정 인증, YouTube 구독 결제는 자동화하지 않습니다.
