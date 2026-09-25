@@ -9,11 +9,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
+from dotenv import load_dotenv
 
 
 LOG = logging.getLogger("grizzly")
 API = "https://api.grizzlysms.com/stubs/handler_api.php"
-STATE = Path(os.getenv("STATE_FILE", "/data/purchase.json"))
+load_dotenv(Path(__file__).with_name(".env"))
+STATE = Path(os.getenv("STATE_FILE", str(Path(__file__).with_name("purchase.json"))))
 
 
 def required(name):
