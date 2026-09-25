@@ -115,6 +115,34 @@ class BotTests(unittest.TestCase):
         self.assertEqual([p["action"] for p in session.params], ["getStatus", "setStatus"])
         self.assertEqual(bot.read_state()["status"], "attempted")
 
+    def test_early_cancellation_denial_retries_without_buying(self):
+        instance = bot.Bot(CFG)
+        bot.save_state({"status": "purchased", "id": "1", "phone": "905551111111",
+                        "acquired_at": 0, "notified": True,
+                        "history": [{"id": "1", "phone": "905551111111", "result": "waiting"}]})
+        session = Session(["STATUS_WAIT_CODE", "EARLY_CANCEL_DENIED",
+                           "STATUS_WAIT_CODE", "ACCESS_CANCEL", "ACCESS_NUMBER:2:905551111112"])
+        with patch.object(bot, "send_discord"), patch.object(instance.stop, "wait", return_value=False), patch.object(bot.time, "time", return_value=120) as clock:
+            instance.poll_once(session)
+            self.assertEqual(bot.read_state()["status"], "purchased")
+            self.assertEqual(bot.read_state()["cancel_retries"], 1)
+            clock.return_value = 140
+            instance.poll_once(session)
+            instance.poll_once(session)
+        self.assertEqual([p["action"] for p in session.params].count("getNumber"), 1)
+        self.assertEqual(len(bot.read_state()["history"]), 2)
+
+    def test_existing_cancellation_error_resumes_status_check(self):
+        bot.save_state({"status": "attempted", "reason": "Cancellation not confirmed",
+                        "id": "1", "phone": "905551111111", "acquired_at": 100,
+                        "notified": True,
+                        "history": [{"id": "1", "phone": "905551111111", "result": "waiting"}]})
+        instance = bot.Bot(CFG)
+        with patch.object(bot, "send_discord"), patch.object(instance, "worker"):
+            instance.run()
+        self.assertEqual(bot.read_state()["status"], "purchased")
+        self.assertEqual(len(bot.read_state()["history"]), 1)
+
     def test_previous_purchase_is_counted_on_startup(self):
         bot.save_state({"status": "purchased", "id": "1", "phone": "905551111111",
                         "notified": True})
