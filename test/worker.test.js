@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PurchaseCoordinator } from '../src/worker.js';
 
-function harness({ stock = 1, purchase = 'ACCESS_NUMBER:123:905551234567', discordFails = false, maxPrice = '2' } = {}) {
+function harness({ stock = 1, purchase = 'ACCESS_NUMBER:123:905551234567', discordFails = false, maxPrice = '1' } = {}) {
   const data = new Map();
   const requests = [];
   const ctx = { storage: {
     get: async k => data.get(k), put: async (k, v) => { data.set(k, v); },
     delete: async k => { data.delete(k); },
   } };
-  const env = { GRIZZLY_API_KEY: 'fake', DISCORD_WEBHOOK_URL: 'https://discord.com/api/webhooks/123/fake', MAX_PRICE: maxPrice };
+  const env = { GRIZZLY_API_KEY: 'fake', DISCORD_WEBHOOK_URL: 'https://discord.com/api/webhooks/123/fake', MAX_PRICE: maxPrice, PROVIDER_IDS: '393,405,406,140' };
   const coordinator = new PurchaseCoordinator(ctx, env);
   const prior = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
@@ -17,7 +17,7 @@ function harness({ stock = 1, purchase = 'ACCESS_NUMBER:123:905551234567', disco
     requests.push({ target, options });
     if (target.hostname === 'discord.com') return { ok: !discordFails };
     if (target.searchParams.get('action') === 'getPricesV3') return {
-      ok: true, text: async () => JSON.stringify({ 62: { wx: { providers: { 405: { count: stock } } } } }),
+      ok: true, text: async () => JSON.stringify({ 62: { wx: { providers: { 393: { count: stock }, 405: { count: 0 }, 406: { count: 0 }, 140: { count: 0 } } } } }),
     };
     return { ok: true, text: async () => purchase };
   };
@@ -43,8 +43,8 @@ test('one purchase with provider and price cap, then no repeat', async () => {
     assert.equal((await h.tick()).status, 200);
     const buys = h.requests.filter(r => r.target.searchParams.get('action') === 'getNumber');
     assert.equal(buys.length, 1);
-    assert.equal(buys[0].target.searchParams.get('providerIds'), '405');
-    assert.equal(buys[0].target.searchParams.get('maxPrice'), '2');
+    assert.equal(buys[0].target.searchParams.get('providerIds'), '393,405,406,140');
+    assert.equal(buys[0].target.searchParams.get('maxPrice'), '1');
     assert.equal(h.data.get('purchase-state').notified, true);
   } finally { h.restore(); }
 });
