@@ -25,25 +25,29 @@ def required(name):
     return value
 
 
+def setting(name, default):
+    return os.getenv(name, default).strip()
+
+
 def config():
     webhook = required("DISCORD_WEBHOOK_URL")
     parsed = urlparse(webhook)
     if parsed.scheme != "https" or parsed.hostname != "discord.com" or not parsed.path.startswith("/api/webhooks/"):
         raise ValueError("Invalid Discord webhook URL")
-    price = required("MAX_PRICE")
+    price = setting("MAX_PRICE", "1")
     if not price.replace(".", "", 1).isdigit() or not 0 < float(price) <= 1:
         raise ValueError("MAX_PRICE must be between 0 and 1")
-    ids = required("PROVIDER_IDS")
+    ids = setting("PROVIDER_IDS", "393,405,406,140")
     if not all(part.isdigit() for part in ids.split(",")):
         raise ValueError("Invalid PROVIDER_IDS")
     cfg = {
         "api_key": required("GRIZZLY_API_KEY"), "webhook": webhook,
-        "service": required("SERVICE"), "country": required("COUNTRY"),
+        "service": setting("SERVICE", "wx"), "country": setting("COUNTRY", "62"),
         "max_price": price, "providers": ids,
-        "threads": int(required("THREADS")),
-        "rate": float(required("MAX_REQUESTS_PER_SECOND")),
-        "timeout": float(required("REQUEST_TIMEOUT_SECONDS")),
-        "status_every": int(required("STATUS_EVERY_REQUESTS")),
+        "threads": int(setting("THREADS", "20")),
+        "rate": float(setting("MAX_REQUESTS_PER_SECOND", "5")),
+        "timeout": float(setting("REQUEST_TIMEOUT_SECONDS", "10")),
+        "status_every": int(setting("STATUS_EVERY_REQUESTS", "10")),
     }
     if any(cfg[k] <= 0 for k in ("threads", "rate", "timeout", "status_every")):
         raise ValueError("Poll settings must be positive")
