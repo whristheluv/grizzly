@@ -156,7 +156,11 @@ class Bot:
         if body not in ("STATUS_WAIT_CODE", "STATUS_WAIT_RESEND", "STATUS_WAIT_RETRY"):
             self.stop_for_review(state, "Unexpected SMS status")
             return
-        if time.time() - state["acquired_at"] < self.cfg["sms_wait"]:
+        age = time.time() - state["acquired_at"]
+        if age < self.cfg["sms_wait"] or time.time() < state.get("next_cancel_at", 0):
+            return
+        if state.get("cancel_retries", 0) >= 20:
+            self.stop_for_review(state, "Cancellation still denied after twenty retries")
             return
         # Never buy again while the prior activation may still be active.
         try:
@@ -168,8 +172,14 @@ class Bot:
         except requests.RequestException:
             self.stop_for_review(state, "Cancellation outcome unclear")
             return
-        if cancelled.text.strip() != "ACCESS_CANCEL":
-            self.stop_for_review(state, "Cancellation not confirmed")
+        result = cancelled.text.strip()
+        if result == "EARLY_CANCEL_DENIED":
+            LOG.info("Cancellation is not yet allowed; retrying in 15 seconds")
+            save_state({**state, "next_cancel_at": time.time() + 15,
+                        "cancel_retries": state.get("cancel_retries", 0) + 1})
+            return
+        if result != "ACCESS_CANCEL":
+            self.stop_for_review(state, f"Cancellation not confirmed ({result[:80]})")
             return
         self.expire_number(state, "cancelled_no_sms")
 
@@ -231,6 +241,17 @@ class Bot:
 
     def run(self):
         state = read_state()
+        if (state.get("status") == "attempted"
+                and state.get("reason") == "Cancellation not confirmed"
+                and state.get("id") and state.get("acquired_at")
+                and state.get("history")
+                and state["history"][-1].get("id") == state["id"]
+                and state["history"][-1].get("result") == "waiting"):
+            # Recover only the known prior cancellation case by checking its SMS status
+            # before making any further charge-capable request.
+            state = {**state, "status": "purchased", "notified": True}
+            save_state(state)
+            LOG.info("Resuming SMS/cancellation check for existing activation")
         if state["status"] == "purchased" and "history" not in state:
             # Existing DisHost purchase counts as the first of five; do not delete it.
             state = {**state, "acquired_at": time.time(),
